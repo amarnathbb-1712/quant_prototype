@@ -39,7 +39,14 @@ def quantize(
     elif mapping_type == MappingEnum.ASYMMETRIC:
         int8_weights = torch.round((weights - zero_points_tensor) / scales_tensor).clamp(qmin, qmax).to(torch.uint8)
 
+    print(int8_weights)
+    print()
+    print(scales_list)
+    print(scales_tensor)
+    print()
+    print(zero_points_list)
+    print(zero_points_tensor)
     # Store quantized artifacts in module
-    self.int8_weights = int8_weights
-    self.scales = scales_tensor
-    self.zero_points = zero_points_tensor
+    # self.int8_weights = int8_weights
+    # self.scales = scales_tensor
+    # self.zero_points = zero_points_tensor
