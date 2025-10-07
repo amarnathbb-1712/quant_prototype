@@ -2,27 +2,22 @@ import torch
 import torch.nn as nn
 from enum import Enum, auto
 
-# --- Mapping type enum ---
 class MappingType(Enum):
     SYMMETRIC = auto()
-    SYMMETRIC_NO_CLIPPING_ERR = auto()
     ASYMMETRIC = auto()
 
-# --- Function to compute qparams ---
-def get_qparams(x_min, x_max, qmin, qmax, mapping_type: MappingType):
-    """Compute scale and zero_point based on mapping type."""
-    eps = 1e-8  # to prevent division-by-zero
+class Granularity(Enum):
+    PER_ROW = auto()
+    # PER_COLUMN = auto()
+    PER_TENSOR = auto()
+
+def compute_qparams(x_min, x_max, qmin, qmax, mapping_type: MappingType):
+    eps = 1e-8
     x_min, x_max = float(x_min), float(x_max)
 
     if mapping_type == MappingType.SYMMETRIC:
         max_abs = max(abs(x_min), abs(x_max))
         scale = max_abs / ((qmax - qmin) / 2)
-        zero_point = 0
-
-    elif mapping_type == MappingType.SYMMETRIC_NO_CLIPPING_ERR:
-        smin = abs(x_min) / abs(qmin) if qmin != 0 else 0
-        smax = abs(x_max) / abs(qmax) if qmax != 0 else 0
-        scale = max(smin, smax) + eps
         zero_point = 0
 
     elif mapping_type == MappingType.ASYMMETRIC:
@@ -35,30 +30,63 @@ def get_qparams(x_min, x_max, qmin, qmax, mapping_type: MappingType):
 
     return scale, zero_point
 
-# --- Example Linear layer ---
-layer = nn.Linear(3, 6)  # 6 outputs, 3 inputs
-weight_tensor = layer.weight  # shape: (6, 3)
+def get_qparams(weight_tensor, qmin, qmax, mapping_type, granularity):
+    scales = []
+    zero_points = []
 
-# --- Compute per-row min and max ---
-x_min_rows = weight_tensor.min(dim=1).values  # shape: (6,)
-x_max_rows = weight_tensor.max(dim=1).values  # shape: (6,)
-print("Per-row min:", x_min_rows)
-print("Per-row max:", x_max_rows)
+    if granularity == Granularity.PER_ROW:
+        x_min_vals = weight_tensor.min(dim=1).values
+        x_max_vals = weight_tensor.max(dim=1).values
+        for i in range(weight_tensor.shape[0]):
+            scale, zero_point = compute_qparams(
+                x_min_vals[i].item(),
+                x_max_vals[i].item(),
+                qmin, qmax,
+                mapping_type
+            )
+            scales.append(scale)
+            zero_points.append(zero_point)
 
-# --- Compute per-row scales and zero-points ---
-scales = []
-zero_points = []
+    # elif granularity == Granularity.PER_COLUMN:
+    #     x_min_vals = weight_tensor.min(dim=0).values
+    #     x_max_vals = weight_tensor.max(dim=0).values
+    #     for i in range(weight_tensor.shape[1]):
+    #         scale, zero_point = compute_qparams(
+    #             x_min_vals[i].item(),
+    #             x_max_vals[i].item(),
+    #             qmin, qmax,
+    #             mapping_type
+    #         )
+    #         scales.append(scale)
+    #         zero_points.append(zero_point)
 
-for i in range(weight_tensor.shape[0]):  # iterate over rows
-    scale, zero_point = get_qparams(
-        x_min_rows[i].item(),
-        x_max_rows[i].item(),
-        qmin=-8,
-        qmax=7,
-        mapping_type=MappingType.SYMMETRIC
-    )
-    scales.append(scale)
-    zero_points.append(zero_point)
+    elif granularity == Granularity.PER_TENSOR:
+        x_min = weight_tensor.min().item()
+        x_max = weight_tensor.max().item()
+        scale, zero_point = compute_qparams(
+            x_min,
+            x_max,
+            qmin, qmax,
+            mapping_type
+        )
+        scales.append(scale)
+        zero_points.append(zero_point)
 
-print("Per-row scales:", scales)
-print("Per-row zero-points:", zero_points)
+    else:
+        raise ValueError(f"Unsupported granularity: {granularity}")
+
+    return scales, zero_points
+
+layer = nn.Linear(3, 6)
+weight_tensor = layer.weight  # shape (6,3)
+
+qmin, qmax = -8, 7
+mapping_type = MappingType.SYMMETRIC
+granularity = Granularity.PER_ROW
+
+scales, zero_points = get_qparams(
+    weight_tensor, qmin, qmax, mapping_type, granularity
+)
+
+print("Scales:", scales)
+print("Zero points:", zero_points)
