@@ -1,26 +1,17 @@
 import torch
 import torch.nn as nn
-from enum import Enum, auto
+from enums import MappingEnum, GranularityEnum
 
-class MappingType(Enum):
-    SYMMETRIC = auto()
-    ASYMMETRIC = auto()
-
-class Granularity(Enum):
-    PER_ROW = auto()
-    # PER_COLUMN = auto()
-    PER_TENSOR = auto()
-
-def compute_qparams(x_min, x_max, qmin, qmax, mapping_type: MappingType):
+def compute_qparams(x_min, x_max, qmin, qmax, mapping_type: MappingEnum):
     eps = 1e-8
     x_min, x_max = float(x_min), float(x_max)
 
-    if mapping_type == MappingType.SYMMETRIC:
+    if mapping_type == MappingEnum.SYMMETRIC:
         max_abs = max(abs(x_min), abs(x_max))
         scale = max_abs / ((qmax - qmin) / 2)
         zero_point = 0
 
-    elif mapping_type == MappingType.ASYMMETRIC:
+    elif mapping_type == MappingEnum.ASYMMETRIC:
         scale = (x_max - x_min) / (qmax - qmin + eps)
         zero_point = qmin - round(x_min / scale)
         zero_point = int(torch.clamp(torch.tensor(zero_point), qmin, qmax).item())
@@ -34,7 +25,7 @@ def get_qparams(weight_tensor, qmin, qmax, mapping_type, granularity):
     scales = []
     zero_points = []
 
-    if granularity == Granularity.PER_ROW:
+    if granularity == GranularityEnum.PER_ROW:
         x_min_vals = weight_tensor.min(dim=1).values
         x_max_vals = weight_tensor.max(dim=1).values
         for i in range(weight_tensor.shape[0]):
@@ -60,7 +51,7 @@ def get_qparams(weight_tensor, qmin, qmax, mapping_type, granularity):
     #         scales.append(scale)
     #         zero_points.append(zero_point)
 
-    elif granularity == Granularity.PER_TENSOR:
+    elif granularity == GranularityEnum.PER_TENSOR:
         x_min = weight_tensor.min().item()
         x_max = weight_tensor.max().item()
         scale, zero_point = compute_qparams(
@@ -81,8 +72,8 @@ layer = nn.Linear(3, 6)
 weight_tensor = layer.weight  # shape (6,3)
 
 qmin, qmax = -8, 7
-mapping_type = MappingType.SYMMETRIC
-granularity = Granularity.PER_ROW
+mapping_type = MappingEnum.SYMMETRIC
+granularity = GranularityEnum.PER_ROW
 
 scales, zero_points = get_qparams(
     weight_tensor, qmin, qmax, mapping_type, granularity
